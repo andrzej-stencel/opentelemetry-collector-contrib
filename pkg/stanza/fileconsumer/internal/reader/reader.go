@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync"
 
 	"go.opentelemetry.io/collector/component"
 	"go.uber.org/zap"
@@ -53,6 +54,7 @@ type Reader struct {
 	compression            string
 	acquireFSLock          bool
 	maxBatchSize           int
+	bufferPool             *sync.Pool
 }
 
 // ReadToEnd will read until the end of the file
@@ -182,11 +184,7 @@ func (r *Reader) readContents(ctx context.Context) {
 
 	tokens := make([]emit.Token, 0, r.maxBatchSize)
 
-	// Pre-allocate space in memory for r.maxBatchSize token buffers, to avoid allocations inside the loop.
-	tokenBodies := make([][]byte, r.maxBatchSize)
-	for i := range tokenBodies {
-		tokenBodies[i] = make([]byte, 1<<12)
-	}
+	bodyBuffers := make([]*[]byte, 0, r.maxBatchSize)
 
 	// Pre-allocate space in memory for r.maxBatchSize attribute maps, to avoid allocations inside the loop.
 	tokenAttributes := make([]map[string]any, r.maxBatchSize)
@@ -221,9 +219,11 @@ func (r *Reader) readContents(ctx context.Context) {
 		}
 
 		var err error
-		tokenBodies[len(tokens)], err = r.decoder.DecodeTo(tokenBodies[len(tokens)], s.Bytes())
+		decodeBufferPtr := r.bufferPool.Get().(*[]byte)
+		*decodeBufferPtr, err = r.decoder.DecodeTo(*decodeBufferPtr, s.Bytes())
 		if err != nil {
 			r.set.Logger.Error("failed to decode token", zap.Error(err))
+			r.bufferPool.Put(decodeBufferPtr)
 			r.Offset = s.Pos() // move past the bad token or we may be stuck
 			continue
 		}
@@ -233,7 +233,8 @@ func (r *Reader) readContents(ctx context.Context) {
 			tokenAttributes[len(tokens)][attrs.LogFileRecordNumber] = r.RecordNum
 		}
 
-		tokens = append(tokens, emit.NewToken(tokenBodies[len(tokens)], tokenAttributes[len(tokens)]))
+		tokens = append(tokens, emit.NewToken(*decodeBufferPtr, tokenAttributes[len(tokens)]))
+		bodyBuffers = append(bodyBuffers, decodeBufferPtr)
 
 		if r.maxBatchSize > 0 && len(tokens) >= r.maxBatchSize {
 			err := r.emitFunc(ctx, tokens)
@@ -241,6 +242,11 @@ func (r *Reader) readContents(ctx context.Context) {
 				r.set.Logger.Error("failed to emit token", zap.Error(err))
 			}
 			tokens = tokens[:0]
+			// Release buffers back to the pool.
+			for i := range bodyBuffers {
+				r.bufferPool.Put(bodyBuffers[i])
+			}
+			bodyBuffers = bodyBuffers[:0]
 			r.Offset = s.Pos()
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
@@ -46,6 +47,7 @@ type Factory struct {
 	IncludeFileRecordNumber bool
 	Compression             string
 	AcquireFSLock           bool
+	BufferPool              *sync.Pool
 }
 
 func (f *Factory) NewFingerprint(file *os.File) (*fingerprint.Fingerprint, error) {
@@ -79,6 +81,7 @@ func (f *Factory) NewReaderFromMetadata(file *os.File, m *Metadata) (r *Reader, 
 		compression:          f.Compression,
 		acquireFSLock:        f.AcquireFSLock,
 		maxBatchSize:         DefaultMaxBatchSize,
+		bufferPool:           f.BufferPool,
 	}
 	r.set.Logger = r.set.Logger.With(zap.String("path", r.fileName))
 

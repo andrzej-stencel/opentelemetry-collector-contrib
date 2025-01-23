@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/collector/component"
@@ -172,6 +173,12 @@ func (c Config) Build(set component.TelemetrySettings, emit emit.Callback, opts 
 		IncludeFileRecordNumber: c.IncludeFileRecordNumber,
 		Compression:             c.Compression,
 		AcquireFSLock:           c.AcquireFSLock,
+	}
+	readerFactory.BufferPool = &sync.Pool{
+		New: func() any {
+			buffer := make([]byte, 4096)
+			return &buffer
+		},
 	}
 
 	telemetryBuilder, err := metadata.NewTelemetryBuilder(set)
