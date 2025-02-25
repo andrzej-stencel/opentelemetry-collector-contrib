@@ -69,7 +69,14 @@ func createLogsReceiver(logReceiverType LogReceiverType) rcvr.CreateLogsFunc {
 			emitterOpts = append(emitterOpts, helper.WithFlushInterval(baseCfg.flushInterval))
 		}
 
-		emitter := helper.NewLogEmitter(params.TelemetrySettings, rcv.consumeEntries, emitterOpts...)
+		var emitter helper.LogEmitter
+		switch logReceiverType.Type().String() {
+		case "filelog":
+			emitter = helper.NewSynchronousLogEmitter(params.TelemetrySettings, rcv.consumeEntries)
+		default:
+			emitter = helper.NewBatchingLogEmitter(params.TelemetrySettings, rcv.consumeEntries, emitterOpts...)
+
+		}
 		pipe, err := pipeline.Config{
 			Operators:     operators,
 			DefaultOutput: emitter,
