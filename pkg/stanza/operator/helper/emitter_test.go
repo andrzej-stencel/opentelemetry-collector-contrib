@@ -47,10 +47,10 @@ func TestLogEmitter(t *testing.T) {
 	require.Equal(t, in, receivedEntries[0])
 }
 
-func TestLogEmitterEmitsOnMaxBatchSize(t *testing.T) {
+func TestLogEmitterEmits(t *testing.T) {
 	const (
-		maxBatchSize = 100
-		timeout      = time.Second
+		count   = 100
+		timeout = time.Second
 	)
 	rwMtx := &sync.RWMutex{}
 	var receivedEntries []*entry.Entry
@@ -68,7 +68,7 @@ func TestLogEmitterEmitsOnMaxBatchSize(t *testing.T) {
 		require.NoError(t, emitter.Stop())
 	}()
 
-	entries := complexEntries(maxBatchSize)
+	entries := complexEntries(count)
 
 	ctx := context.Background()
 	for _, e := range entries {
@@ -80,43 +80,7 @@ func TestLogEmitterEmitsOnMaxBatchSize(t *testing.T) {
 		defer rwMtx.RUnlock()
 		return receivedEntries != nil
 	}, timeout, 10*time.Millisecond)
-	require.Len(t, receivedEntries, maxBatchSize)
-}
-
-func TestLogEmitterEmitsOnFlushInterval(t *testing.T) {
-	const (
-		flushInterval = 100 * time.Millisecond
-		timeout       = time.Second
-	)
-	rwMtx := &sync.RWMutex{}
-	var receivedEntries []*entry.Entry
-	emitter := NewLogEmitter(
-		componenttest.NewNopTelemetrySettings(),
-		func(_ context.Context, entries []*entry.Entry) {
-			rwMtx.Lock()
-			defer rwMtx.Unlock()
-			receivedEntries = entries
-		},
-	)
-	emitter.flushInterval = flushInterval
-
-	require.NoError(t, emitter.Start(nil))
-	defer func() {
-		require.NoError(t, emitter.Stop())
-	}()
-
-	entry := complexEntry()
-
-	ctx := context.Background()
-	assert.NoError(t, emitter.Process(ctx, entry))
-
-	require.Eventually(t, func() bool {
-		rwMtx.RLock()
-		defer rwMtx.RUnlock()
-		return receivedEntries != nil
-	}, timeout, 10*time.Millisecond)
-
-	require.Len(t, receivedEntries, 1)
+	require.Len(t, receivedEntries, count)
 }
 
 func complexEntries(count int) []*entry.Entry {
