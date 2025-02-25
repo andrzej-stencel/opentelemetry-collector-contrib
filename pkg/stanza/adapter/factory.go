@@ -61,15 +61,8 @@ func createLogsReceiver(logReceiverType LogReceiverType) rcvr.CreateLogsFunc {
 			storageID: baseCfg.StorageID,
 		}
 
-		var emitterOpts []helper.EmitterOption
-		if baseCfg.maxBatchSize > 0 {
-			emitterOpts = append(emitterOpts, helper.WithMaxBatchSize(baseCfg.maxBatchSize))
-		}
-		if baseCfg.flushInterval > 0 {
-			emitterOpts = append(emitterOpts, helper.WithFlushInterval(baseCfg.flushInterval))
-		}
+		emitter := helper.NewLogEmitter(params.TelemetrySettings, rcv.consumeEntries)
 
-		emitter := helper.NewLogEmitter(params.TelemetrySettings, rcv.consumeEntries, emitterOpts...)
 		pipe, err := pipeline.Config{
 			Operators:     operators,
 			DefaultOutput: emitter,
