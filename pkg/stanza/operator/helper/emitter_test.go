@@ -59,7 +59,7 @@ func TestLogEmitterEmits(t *testing.T) {
 		func(_ context.Context, entries []*entry.Entry) {
 			rwMtx.Lock()
 			defer rwMtx.Unlock()
-			receivedEntries = entries
+			receivedEntries = append(receivedEntries, entries...)
 		},
 	)
 
@@ -83,59 +83,42 @@ func TestLogEmitterEmits(t *testing.T) {
 	require.Len(t, receivedEntries, count)
 }
 
-func complexEntries(count int) []*entry.Entry {
-	return complexEntriesForNDifferentHosts(count, 1)
+func TestLogEmitterEmitsBatched(t *testing.T) {
+	const (
+		count   = 234
+		timeout = time.Second
+	)
+	rwMtx := &sync.RWMutex{}
+	var receivedEntries []*entry.Entry
+	emitter := NewLogEmitter(
+		componenttest.NewNopTelemetrySettings(),
+		func(_ context.Context, entries []*entry.Entry) {
+			rwMtx.Lock()
+			defer rwMtx.Unlock()
+			receivedEntries = append(receivedEntries, entries...)
+		},
+	)
+
+	require.NoError(t, emitter.Start(nil))
+	defer func() {
+		require.NoError(t, emitter.Stop())
+	}()
+
+	entries := complexEntries(count)
+
+	ctx := context.Background()
+	assert.NoError(t, emitter.ProcessBatch(ctx, entries))
+
+	require.Eventually(t, func() bool {
+		rwMtx.RLock()
+		defer rwMtx.RUnlock()
+		return receivedEntries != nil
+	}, timeout, 10*time.Millisecond)
+	require.Len(t, receivedEntries, count)
 }
 
-func complexEntry() *entry.Entry {
-	e := entry.New()
-	e.Severity = entry.Error
-	e.Resource = map[string]any{
-		"bool":   true,
-		"int":    123,
-		"double": 12.34,
-		"string": "hello",
-		"object": map[string]any{
-			"bool":   true,
-			"int":    123,
-			"double": 12.34,
-			"string": "hello",
-		},
-	}
-	e.Attributes = map[string]any{
-		"bool":   true,
-		"int":    123,
-		"double": 12.34,
-		"string": "hello",
-		"object": map[string]any{
-			"bool":   true,
-			"int":    123,
-			"double": 12.34,
-			"string": "hello",
-		},
-	}
-	e.Body = map[string]any{
-		"bool":   true,
-		"int":    123,
-		"double": 12.34,
-		"string": "hello",
-		// "bytes":  []byte("asdf"),
-		"object": map[string]any{
-			"bool":   true,
-			"int":    123,
-			"double": 12.34,
-			"string": "hello",
-			// "bytes":  []byte("asdf"),
-			"object": map[string]any{
-				"bool": true,
-				"int":  123,
-				// "double": 12.34,
-				"string": "hello",
-				// "bytes":  []byte("asdf"),
-			},
-		},
-	}
-	return e
+func complexEntries(count int) []*entry.Entry {
+	return complexEntriesForNDifferentHosts(count, 1)
 }
 
 func complexEntriesForNDifferentHosts(count int, n int) []*entry.Entry {
